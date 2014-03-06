@@ -416,16 +416,40 @@ static ssize_t framerate_store(struct device *dev,
 }
 #endif  //CONFIG_HUAWEI_KERNEL
 
+static ssize_t mdss_fb_get_panel_info(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct fb_info *fbi = dev_get_drvdata(dev);
+	struct msm_fb_data_type *mfd = fbi->par;
+	struct mdss_panel_info *pinfo = mfd->panel_info;
+	int ret;
+
+	ret = scnprintf(buf, PAGE_SIZE,
+			"pu_en=%d\nxstart=%d\nwalign=%d\nystart=%d\nhalign=%d",
+			pinfo->partial_update_enabled, pinfo->xstart_pix_align,
+			pinfo->width_pix_align, pinfo->ystart_pix_align,
+			pinfo->height_pix_align);
+
+	return ret;
+}
+
 static DEVICE_ATTR(msm_fb_type, S_IRUGO, mdss_fb_get_type, NULL);
 static DEVICE_ATTR(msm_fb_split, S_IRUGO, mdss_fb_get_split, NULL);
 #ifdef CONFIG_HUAWEI_KERNEL
 static DEVICE_ATTR(frame_rate, S_IRUSR | S_IWUSR, framerate_show, framerate_store);
 #endif
 static DEVICE_ATTR(show_blank_event, S_IRUGO, mdss_mdp_show_blank_event, NULL);
+/* START HUAWEI SPECIFIC STUFF */
 #ifdef CONFIG_HUAWEI_LCD
 static DEVICE_ATTR(inversion_mode, S_IRUGO|S_IWUSR|S_IWGRP, mdss_show_inversion_mode, mdss_store_inversion_mode);
 static DEVICE_ATTR(panel_status, S_IRUGO, mdss_show_panel_status, NULL);
 #endif
+/* END HUAWEI SPECIFIC STUFF */
+static DEVICE_ATTR(idle_time, S_IRUGO | S_IWUSR | S_IWGRP,
+	mdss_fb_get_idle_time, mdss_fb_set_idle_time);
+static DEVICE_ATTR(idle_notify, S_IRUGO, mdss_fb_get_idle_notify, NULL);
+static DEVICE_ATTR(msm_fb_panel_info, S_IRUGO, mdss_fb_get_panel_info, NULL);
+
 static struct attribute *mdss_fb_attrs[] = {
 	&dev_attr_msm_fb_type.attr,
 	&dev_attr_msm_fb_split.attr,
@@ -433,10 +457,15 @@ static struct attribute *mdss_fb_attrs[] = {
     &dev_attr_frame_rate.attr,
 #endif
 	&dev_attr_show_blank_event.attr,
+/* START HUAWEI SPECIFIC STUFF */
 #ifdef CONFIG_HUAWEI_LCD
 	&dev_attr_inversion_mode.attr,
 	&dev_attr_panel_status.attr,
 #endif
+/* END HUAWEI SPECIFIC STUFF */
+	&dev_attr_idle_time.attr,
+	&dev_attr_idle_notify.attr,
+	&dev_attr_msm_fb_panel_info.attr,
 	NULL,
 };
 
