@@ -233,7 +233,8 @@ struct mdss_dsi_ctrl_pdata {
 	int (*off) (struct mdss_panel_data *pdata);
 	int (*partial_update_fnc) (struct mdss_panel_data *pdata);
 	int (*check_status) (struct mdss_dsi_ctrl_pdata *pdata);
-	void (*cmdlist_commit)(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp);
+	int (*cmdlist_commit)(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp);
+	void (*switch_mode) (struct mdss_panel_data *pdata, int mode);
 	struct mdss_panel_data panel_data;
 	unsigned char *ctrl_base;
 	int reg_size;
@@ -276,22 +277,17 @@ struct mdss_dsi_ctrl_pdata {
 	struct dsi_panel_cmds on_cmds;
 	struct dsi_panel_cmds off_cmds;
 
-#ifdef CONFIG_FB_AUTO_CABC
-	struct dsi_panel_cmds dsi_panel_cabc_ui_cmds;
-	struct dsi_panel_cmds dsi_panel_cabc_video_cmds;
-
-//remove dynamic gamma
-#endif
-#ifdef CONFIG_FB_DISPLAY_INVERSION
-	u32 inversion_state;
-	struct dsi_panel_cmds dsi_panel_inverse_on_cmds;
-	struct dsi_panel_cmds dsi_panel_inverse_off_cmds;
-#endif
+/* START HUAWEI SPECIFIC STUFF */
 #ifdef CONFIG_HUAWEI_LCD
 	u32 first_wake_up;
 	struct dsi_panel_cmds temporary_pwm_cmds;
 	struct dsi_panel_cmds normal_pwm_cmds;
 #endif
+/* END HUAWEI SPECIFIC STUFF */
+
+	struct dsi_panel_cmds video2cmd;
+	struct dsi_panel_cmds cmd2video;
+
 	struct dcs_cmd_list cmdlist;
 	struct completion dma_comp;
 	struct completion mdp_comp;
@@ -379,6 +375,8 @@ int mdss_dsi_bta_status_check(struct mdss_dsi_ctrl_pdata *ctrl);
 int mdss_dsi_panel_init(struct device_node *node,
 		struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 		bool cmd_cfg_cont_splash);
+int mdss_panel_get_dst_fmt(u32 bpp, char mipi_mode, u32 pixel_packing,
+				char *dst_format);
 
 /* START HUAWEI SPECIFIC STUFF */
 #ifdef CONFIG_HUAWEI_KERNEL
