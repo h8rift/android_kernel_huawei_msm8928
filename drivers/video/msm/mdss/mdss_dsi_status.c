@@ -30,7 +30,7 @@
 #include "mdss_panel.h"
 #include "mdss_mdp.h"
 
-#define STATUS_CHECK_INTERVAL 5000
+/* START HUAWEI SPECIFIC STUFF */
 #ifndef CONFIG_HUAWEI_LCD
 struct dsi_status_data {
 	struct notifier_block fb_notifier;
@@ -39,8 +39,14 @@ struct dsi_status_data {
 	uint32_t check_interval;
 };
 #endif
+/* END HUAWEI SPECIFIC STUFF */
+#define STATUS_CHECK_INTERVAL_MS 5000
+#define STATUS_CHECK_INTERVAL_MIN_MS 200
+#define DSI_STATUS_CHECK_DISABLE 0
+
+static uint32_t interval = STATUS_CHECK_INTERVAL_MS;
+static uint32_t dsi_status_disable = DSI_STATUS_CHECK_DISABLE;
 struct dsi_status_data *pstatus_data;
-static uint32_t interval = STATUS_CHECK_INTERVAL;
 
 /*
  * check_dsi_ctrl_status() - Check DSI controller status periodically.
@@ -220,7 +226,28 @@ static int fb_event_callback(struct notifier_block *self,
 	struct fb_event *evdata = data;
 	struct dsi_status_data *pdata = container_of(self,
 				struct dsi_status_data, fb_notifier);
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+	struct mdss_panel_info *pinfo;
+
 	pdata->mfd = evdata->info->par;
+	ctrl_pdata = container_of(dev_get_platdata(&pdata->mfd->pdev->dev),
+				struct mdss_dsi_ctrl_pdata, panel_data);
+	if (!ctrl_pdata) {
+		pr_err("%s: DSI ctrl not available\n", __func__);
+		return NOTIFY_BAD;
+	}
+
+	pinfo = &ctrl_pdata->panel_data.panel_info;
+
+	if (!(pinfo->esd_check_enabled)) {
+		pr_debug("ESD check is not enaled in panel dtsi\n");
+		return NOTIFY_DONE;
+	}
+
+	if (dsi_status_disable) {
+		pr_debug("%s: DSI status disabled\n", __func__);
+		return NOTIFY_DONE;
+	}
 
 	if (event == FB_EVENT_BLANK && evdata) {
 		int *blank = evdata->data;
