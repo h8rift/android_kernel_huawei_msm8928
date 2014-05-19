@@ -177,9 +177,34 @@ static int mdss_mdp_cmd_tearcheck_setup(struct mdss_mdp_ctl *ctl)
 static inline void mdss_mdp_cmd_clk_on(struct mdss_mdp_cmd_ctx *ctx)
 {
 	unsigned long flags;
+	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
+	int rc;
+
+	if (!ctx->panel_on)
+		return;
+
 	mutex_lock(&ctx->clk_mtx);
 	if (!ctx->clk_enabled) {
 		ctx->clk_enabled = 1;
+		if (cancel_delayed_work_sync(&ctx->ulps_work))
+			pr_debug("deleted pending ulps work\n");
+
+		rc = mdss_iommu_ctrl(1);
+		if (IS_ERR_VALUE(rc)) {
+			pr_err("IOMMU attach failed\n");
+			mutex_unlock(&ctx->clk_mtx);
+			return;
+		}
+		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON, false);
+
+		if (ctx->ulps) {
+			if (mdss_mdp_cmd_tearcheck_setup(ctx->ctl))
+				pr_warn("tearcheck setup failed\n");
+			mdss_mdp_ctl_intf_event(ctx->ctl,
+				MDSS_EVENT_DSI_ULPS_CTRL, (void *)0);
+			ctx->ulps = false;
+		}
+
 		mdss_mdp_ctl_intf_event
 			(ctx->ctl, MDSS_EVENT_PANEL_CLK_CTRL, (void *)1);
 		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON, false);
@@ -207,6 +232,7 @@ static inline void mdss_mdp_cmd_clk_off(struct mdss_mdp_cmd_ctx *ctx)
 		ctx->clk_enabled = 0;
 		mdss_mdp_ctl_intf_event
 			(ctx->ctl, MDSS_EVENT_PANEL_CLK_CTRL, (void *)0);
+		mdss_iommu_ctrl(0);
 		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF, false);
 	}
 	mutex_unlock(&ctx->clk_mtx);
