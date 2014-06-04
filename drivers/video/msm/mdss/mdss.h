@@ -66,6 +66,43 @@ struct mdss_debug_inf {
 	void (*debug_enable_clock)(int on);
 };
 
+#define MDSS_IRQ_SUSPEND	-1
+#define MDSS_IRQ_RESUME		1
+#define MDSS_IRQ_REQ		0
+
+struct mdss_intr {
+	/* requested intr */
+	u32 req;
+	/* currently enabled intr */
+	u32 curr;
+	int state;
+	spinlock_t lock;
+};
+
+struct mdss_fudge_factor {
+	u32 numer;
+	u32 denom;
+};
+
+struct mdss_prefill_data {
+	u32 ot_bytes;
+	u32 y_buf_bytes;
+	u32 y_scaler_lines_bilinear;
+	u32 y_scaler_lines_caf;
+	u32 post_scaler_pixels;
+	u32 pp_pixels;
+	u32 fbc_lines;
+};
+
+enum mdss_hw_index {
+	MDSS_HW_MDP,
+	MDSS_HW_DSI0,
+	MDSS_HW_DSI1,
+	MDSS_HW_HDMI,
+	MDSS_HW_EDP,
+	MDSS_MAX_HW_BLK
+};
+
 struct mdss_data_type {
 	u32 mdp_rev;
 	struct clk *mdp_clk[MDSS_MAX_CLK];
@@ -153,17 +190,11 @@ struct mdss_data_type {
 	struct mdss_prefill_data prefill_data;
 	bool ulps;
 	int iommu_ref_cnt;
+
+	u64 ab[MDSS_MAX_HW_BLK];
+	u64 ib[MDSS_MAX_HW_BLK];
 };
 extern struct mdss_data_type *mdss_res;
-
-enum mdss_hw_index {
-	MDSS_HW_MDP,
-	MDSS_HW_DSI0,
-	MDSS_HW_DSI1,
-	MDSS_HW_HDMI,
-	MDSS_HW_EDP,
-	MDSS_MAX_HW_BLK
-};
 
 struct mdss_hw {
 	u32 hw_ndx;
@@ -177,6 +208,7 @@ void mdss_disable_irq(struct mdss_hw *hw);
 void mdss_disable_irq_nosync(struct mdss_hw *hw);
 void mdss_bus_bandwidth_ctrl(int enable);
 int mdss_iommu_ctrl(int enable);
+int mdss_bus_scale_set_quota(int client, u64 ab_quota, u64 ib_quota);
 
 static inline struct ion_client *mdss_get_ionclient(void)
 {
