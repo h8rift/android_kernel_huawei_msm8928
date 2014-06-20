@@ -380,6 +380,7 @@ int mdss_dsi_panel_init(struct device_node *node,
 		struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 		bool cmd_cfg_cont_splash);
 
+/* START HUAWEI SPECIFIC STUFF */
 #ifdef CONFIG_HUAWEI_KERNEL
 void mdss_change_fps(void);
 int mdss_dsi_wait4video_done_ret(struct mdss_dsi_ctrl_pdata *ctrl);
@@ -388,4 +389,50 @@ int mdss_dsi_set_fps(int frame_rate);
 #ifdef CONFIG_HUAWEI_LCD
 int panel_check_live_status(struct mdss_dsi_ctrl_pdata *ctrl);
 #endif
+/* END HUAWEI SPECIFIC STUFF */
+int mdss_dsi_register_recovery_handler(struct mdss_dsi_ctrl_pdata *ctrl,
+		struct mdss_panel_recovery *recovery);
+
+static inline bool mdss_dsi_broadcast_mode_enabled(void)
+{
+	return ctrl_list[DSI_CTRL_MASTER]->shared_pdata.broadcast_enable &&
+		ctrl_list[DSI_CTRL_SLAVE] &&
+		ctrl_list[DSI_CTRL_SLAVE]->shared_pdata.broadcast_enable;
+}
+
+static inline struct mdss_dsi_ctrl_pdata *mdss_dsi_get_master_ctrl(void)
+{
+	if (mdss_dsi_broadcast_mode_enabled())
+		return ctrl_list[DSI_CTRL_MASTER];
+	else
+		return NULL;
+}
+
+static inline struct mdss_dsi_ctrl_pdata *mdss_dsi_get_slave_ctrl(void)
+{
+	if (mdss_dsi_broadcast_mode_enabled())
+		return ctrl_list[DSI_CTRL_SLAVE];
+	else
+		return NULL;
+}
+
+static inline bool mdss_dsi_is_master_ctrl(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+	return mdss_dsi_broadcast_mode_enabled() &&
+		(ctrl->ndx == DSI_CTRL_MASTER);
+}
+
+static inline bool mdss_dsi_is_slave_ctrl(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+	return mdss_dsi_broadcast_mode_enabled() &&
+		(ctrl->ndx == DSI_CTRL_SLAVE);
+}
+
+static inline struct mdss_dsi_ctrl_pdata *mdss_dsi_get_ctrl_by_index(int ndx)
+{
+	if (ndx >= DSI_CTRL_MAX)
+		return NULL;
+
+	return ctrl_list[ndx];
+}
 #endif /* MDSS_DSI_H */
