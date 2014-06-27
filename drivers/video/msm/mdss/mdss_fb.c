@@ -995,9 +995,7 @@ void mdss_fb_set_backlight(struct msm_fb_data_type *mfd, u32 bkl_lvl)
 			mfd->bl_level = bkl_lvl;
 			return;
 		}
-	#ifdef CONFIG_HUAWEI_KERNEL
-		mdss_dsi_status_check_ctl(mfd,false);
-	#endif
+		pr_debug("backlight sent to panel :%d\n", temp);
 		pdata->set_backlight(pdata, temp);
 	#ifdef CONFIG_HUAWEI_KERNEL
 		mdss_dsi_status_check_ctl(mfd,true);
