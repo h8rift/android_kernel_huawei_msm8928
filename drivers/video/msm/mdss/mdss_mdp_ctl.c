@@ -343,12 +343,66 @@ static int mdss_mdp_ctl_perf_update(struct mdss_mdp_ctl *ctl)
 	if (total_ib_quota == 0)
 		total_ib_quota = SZ_16M >> MDSS_MDP_BUS_FACTOR_SHIFT;
 
-	if (max_clk_rate != ctl->clk_rate) {
-		if (max_clk_rate > ctl->clk_rate)
-			ret = MDSS_MDP_PERF_UPDATE_EARLY;
-		else
-			perf->bw_ctl = apply_fudge_factor(perf->bw_ctl,
-				&mdss_res->ib_factor);
+		perf->bw_prefill = perf->prefill_bytes;
+		/*
+		 * Prefill bandwidth equals the amount of data (number
+		 * of prefill_bytes) divided by the the amount time
+		 * available (blanking period). It is equivalent that
+		 * prefill bytes times a factor in unit Hz, which is
+		 * the reciprocal of time.
+		 */
+		perf->bw_prefill *= vbp_fac;
+	}
+
+	perf->bw_ctl = max(perf->bw_prefill, perf->bw_overlap);
+}
+
+int mdss_mdp_perf_bw_check(struct mdss_mdp_ctl *ctl,
+		struct mdss_mdp_pipe **left_plist, int left_cnt,
+		struct mdss_mdp_pipe **right_plist, int right_cnt)
+{
+	struct mdss_data_type *mdata = ctl->mdata;
+	struct mdss_mdp_perf_params perf;
+	u32 bw, threshold;
+
+	/* we only need bandwidth check on real-time clients (interfaces) */
+	if (ctl->intf_type == MDSS_MDP_NO_INTF)
+		return 0;
+
+	__mdss_mdp_perf_calc_ctl_helper(ctl, &perf,
+			left_plist, left_cnt, right_plist, right_cnt);
+
+	/* convert bandwidth to kb */
+	bw = DIV_ROUND_UP_ULL(perf.bw_ctl, 1000);
+	pr_debug("calculated bandwidth=%uk\n", bw);
+
+	threshold = ctl->is_video_mode ? mdata->max_bw_low : mdata->max_bw_high;
+	if (bw > threshold) {
+		pr_debug("exceeds bandwidth: %ukb > %ukb\n", bw, threshold);
+		return -E2BIG;
+	}
+
+	return 0;
+}
+
+static void mdss_mdp_perf_calc_ctl(struct mdss_mdp_ctl *ctl,
+		struct mdss_mdp_perf_params *perf)
+{
+	struct mdss_mdp_pipe **left_plist, **right_plist;
+
+	left_plist = ctl->mixer_left ? ctl->mixer_left->stage_pipe : NULL;
+	right_plist = ctl->mixer_right ? ctl->mixer_right->stage_pipe : NULL;
+
+	__mdss_mdp_perf_calc_ctl_helper(ctl, perf,
+			left_plist, (left_plist ? MDSS_MDP_MAX_STAGE : 0),
+			right_plist, (right_plist ? MDSS_MDP_MAX_STAGE : 0));
+
+	if (ctl->is_video_mode) {
+		perf->bw_ctl =
+			max(apply_fudge_factor(perf->bw_overlap,
+				&mdss_res->ib_factor_overlap),
+			apply_fudge_factor(perf->bw_prefill,
+				&mdss_res->ib_factor));
 	}
 	pr_debug("ctl=%d clk_rate=%u\n", ctl->num, perf->mdp_clk_rate);
 	pr_debug("bw_overlap=%llu bw_prefill=%llu prefill_bytes=%d\n",
