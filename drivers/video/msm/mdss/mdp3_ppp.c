@@ -387,6 +387,22 @@ int mdp3_ppp_turnon(struct msm_fb_data_type *mfd, int on_off)
 	return 0;
 }
 
+bool mdp3_optimal_bw(struct blit_req_list *req)
+{
+	int i, solid_fill = 0;
+
+	if (!req || (ppp_stat->req_q.count > 1))
+		return false;
+
+	for (i = 0; i < req->count; i++) {
+		if (req->req_list[i].flags & MDP_SOLID_FILL)
+			solid_fill++;
+	}
+	if ((req->count - solid_fill) <= 1)
+		return true;
+	return false;
+}
+
 void mdp3_start_ppp(struct ppp_blit_op *blit_op)
 {
 	/* Wait for the pipe to clear */
@@ -1040,12 +1056,7 @@ static void mdp3_ppp_blit_wq_handler(struct work_struct *work)
 	}
 
 	if (!ppp_stat->bw_on) {
-		rc = mdp3_iommu_enable(MDP3_CLIENT_PPP);
-		if (rc < 0) {
-			mutex_unlock(&ppp_stat->config_ppp_mutex);
-			pr_err("%s: mdp3_iommu_enable failed\n", __func__);
-			return;
-		}
+		ppp_stat->bw_optimal = mdp3_optimal_bw(req);
 		mdp3_ppp_turnon(mfd, 1);
 		if (rc < 0) {
 			mdp3_iommu_disable(MDP3_CLIENT_PPP);
@@ -1079,6 +1090,10 @@ static void mdp3_ppp_blit_wq_handler(struct work_struct *work)
 		if (ppp_stat->wait_for_pop)
 			complete(&ppp_stat->pop_q_comp);
 		mutex_unlock(&ppp_stat->req_mutex);
+		if (req && (ppp_stat->bw_optimal != mdp3_optimal_bw(req))) {
+			ppp_stat->bw_optimal = !ppp_stat->bw_optimal;
+			mdp3_ppp_vote_update(mfd);
+		}
 	}
 	mod_timer(&ppp_stat->free_bw_timer, jiffies +
 		msecs_to_jiffies(MDP_RELEASE_BW_TIMEOUT));
