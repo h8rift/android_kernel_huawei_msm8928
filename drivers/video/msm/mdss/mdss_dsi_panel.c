@@ -29,10 +29,8 @@
 #include <hw_lcd_debug.h>
 #include <misc/app_info.h>
 
-#ifdef CONFIG_FB_DISPLAY_INVERSION
-#define INVERSION_OFF 0
-#define INVERSION_ON 1
-#endif
+#define MIN_REFRESH_RATE 30
+
 DEFINE_LED_TRIGGER(bl_led_trigger);
 
 int lcd_debug_mask = LCD_INFO;
@@ -1099,6 +1097,85 @@ static int mdss_dsi_parse_panel_features(struct device_node *np,
 	return 0;
 }
 
+static int mdss_dsi_set_refresh_rate_range(struct device_node *pan_node,
+		struct mdss_panel_info *pinfo)
+{
+	int rc = 0;
+	rc = of_property_read_u32(pan_node,
+			"qcom,mdss-dsi-min-refresh-rate",
+			&pinfo->min_fps);
+	if (rc) {
+		pr_warn("%s:%d, Unable to read min refresh rate\n",
+				__func__, __LINE__);
+
+		/*
+		 * Since min refresh rate is not specified when dynamic
+		 * fps is enabled, using minimum as 30
+		 */
+		pinfo->min_fps = MIN_REFRESH_RATE;
+		rc = 0;
+	}
+
+	rc = of_property_read_u32(pan_node,
+			"qcom,mdss-dsi-max-refresh-rate",
+			&pinfo->max_fps);
+	if (rc) {
+		pr_warn("%s:%d, Unable to read max refresh rate\n",
+				__func__, __LINE__);
+
+		/*
+		 * Since max refresh rate was not specified when dynamic
+		 * fps is enabled, using the default panel refresh rate
+		 * as max refresh rate supported.
+		 */
+		pinfo->max_fps = pinfo->mipi.frame_rate;
+		rc = 0;
+	}
+
+	pr_info("dyn_fps: min = %d, max = %d\n",
+			pinfo->min_fps, pinfo->max_fps);
+	return rc;
+}
+
+static void mdss_dsi_parse_dfps_config(struct device_node *pan_node,
+			struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	const char *data;
+	bool dynamic_fps;
+	struct mdss_panel_info *pinfo = &(ctrl_pdata->panel_data.panel_info);
+
+	dynamic_fps = of_property_read_bool(pan_node,
+			"qcom,mdss-dsi-pan-enable-dynamic-fps");
+
+	if (!dynamic_fps)
+		return;
+
+	pinfo->dynamic_fps = true;
+	data = of_get_property(pan_node, "qcom,mdss-dsi-pan-fps-update", NULL);
+	if (data) {
+		if (!strcmp(data, "dfps_suspend_resume_mode")) {
+			pinfo->dfps_update = DFPS_SUSPEND_RESUME_MODE;
+			pr_debug("dfps mode: suspend/resume\n");
+		} else if (!strcmp(data, "dfps_immediate_clk_mode")) {
+			pinfo->dfps_update = DFPS_IMMEDIATE_CLK_UPDATE_MODE;
+			pr_debug("dfps mode: Immediate clk\n");
+		} else if (!strcmp(data, "dfps_immediate_porch_mode")) {
+			pinfo->dfps_update = DFPS_IMMEDIATE_PORCH_UPDATE_MODE;
+			pr_debug("dfps mode: Immediate porch\n");
+		} else {
+			pinfo->dfps_update = DFPS_SUSPEND_RESUME_MODE;
+			pr_debug("default dfps mode: suspend/resume\n");
+		}
+		mdss_dsi_set_refresh_rate_range(pan_node, pinfo);
+	} else {
+		pinfo->dynamic_fps = false;
+		pr_debug("dfps update mode not configured: disable\n");
+	}
+	pinfo->new_fps = pinfo->mipi.frame_rate;
+
+	return;
+}
+
 static int mdss_panel_parse_dt(struct device_node *np,
 			struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
@@ -1431,67 +1508,9 @@ static int mdss_panel_parse_dt(struct device_node *np,
 		pr_err("%s: failed to parse panel features\n", __func__);
 		goto error;
 	}
-#endif
-#ifdef CONFIG_FB_AUTO_CABC
-	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dsi_panel_cabc_ui_cmds,
-		"qcom,panel-cabc-ui-cmds", "qcom,cabc-ui-cmds-dsi-state");
-	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dsi_panel_cabc_video_cmds,
-		"qcom,panel-cabc-video-cmds", "qcom,cabc-video-cmds-dsi-state");
-#endif
-#ifdef CONFIG_FB_DISPLAY_INVERSION
-	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dsi_panel_inverse_on_cmds,
-		"qcom,panel-inverse-on-cmds", "qcom,inverse-on-cmds-dsi-state");
-	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dsi_panel_inverse_off_cmds,
-		"qcom,panel-inverse-off-cmds", "qcom,inverse-on-cmds-dsi-state");
-#endif
-#ifdef CONFIG_HUAWEI_LCD
-	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->temporary_pwm_cmds,
-		"qcom,panel-SetTemporary-pwm-cmds", "qcom,temporary-pwm-command-dsi-state");
-	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->normal_pwm_cmds,
-		"qcom,panel-SetNormal-pwm-cmds", "qcom,normal-pwm-command-dsi-state");
-#endif
-#ifdef CONFIG_HUAWEI_LCD
-	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dot_inversion_cmds,
-		"qcom,panel-dot-inversion-mode-cmds", "qcom,dot-inversion-cmds-dsi-state");
-	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->column_inversion_cmds,
-		"qcom,panel-column-inversion-mode-cmds", "qcom,column-inversion-cmds-dsi-state");
-#endif
-#ifdef CONFIG_HUAWEI_LCD
-	rc = of_property_read_u32(np, "huawei,delaytime-before-bl", &tmp);
-	pinfo->delaytime_before_bl = (!rc ? tmp : 0);
 
-	rc = of_property_read_u32(np, "huawei,long-read-flag", &tmp);
-	ctrl_pdata->long_read_flag= (!rc ? tmp : 0);
-#endif
-#ifdef CONFIG_HUAWEI_LCD
-	data = of_get_property(np, "qcom,mdss-dsi-panel-esd-cmd", &len);
-	/*10 is the max len of the esd check cmd */
-	if ((!data) || (!len)||(len > 10)) {
-		ctrl_pdata->esd_check_enable = false;
-		LCD_LOG_INFO("%s:%d, Panel esd check not enable",
-		       __func__, __LINE__);
-	}
-	else
-	{
-		ctrl_pdata->panel_esd_cmd_len = len;
-		for (i = 0; i < len; i++)
-		ctrl_pdata->panel_esd_cmd[i] = data[i];
-		data = of_get_property(np, "qcom,mdss-dsi-panel-esd-cmd-value", &len);
-		if ((!data) || (len != ctrl_pdata->panel_esd_cmd_len)) {
-			ctrl_pdata->esd_check_enable = false;
-			LCD_LOG_INFO("%s:%d, Panel esd check value not correct",
-		       	__func__, __LINE__);
-		}
-		else
-		{
-			ctrl_pdata->esd_check_enable = true;
-			for (i = 0; i < len; i++)
-				ctrl_pdata->panel_esd_cmd_value[i] = data[i];
-			LCD_LOG_INFO("%s:%d, Panel esd check enable",
-		       	__func__, __LINE__);
-		}
-	}	
-#endif
+	mdss_dsi_parse_dfps_config(np, ctrl_pdata);
+
 	return 0;
 
 error:
