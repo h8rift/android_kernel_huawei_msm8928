@@ -391,19 +391,22 @@ static int mhl_sii_device_discovery(void *data, int id,
 
 	client = mhl_ctrl->i2c_handle;
 
+	mutex_lock(&mhl_ctrl->sii_config_lock);
 	if (on && !mhl_ctrl->irq_req_done) {
 		rc = mhl_vreg_config(mhl_ctrl, 1);
 		if (rc) {
 			pr_err("%s: vreg init failed [%d]\n",
 				__func__, rc);
-			return -ENODEV;
+			rc = -ENODEV;
+			goto vreg_config_error;
 		}
 
 		rc = mhl_gpio_config(mhl_ctrl, 1);
 		if (rc) {
 			pr_err("%s: gpio init failed [%d]\n",
 				__func__, rc);
-			return -ENODEV;
+			rc = -ENODEV;
+			goto vreg_config_error;
 		}
 
 	if (!mhl_ctrl->irq_req_done) {
@@ -412,12 +415,15 @@ static int mhl_sii_device_discovery(void *data, int id,
 					  IRQF_TRIGGER_LOW | IRQF_ONESHOT,
 					  client->dev.driver->name, mhl_ctrl);
 		if (rc) {
-			pr_err("request_threaded_irq failed, status: %d\n",
-			       rc);
-			return -EINVAL;
+			pr_err("%s: request_threaded_irq failed, status: %d\n",
+			       __func__, rc);
+			rc = -ENODEV;
+			goto vreg_config_error;
 		} else {
 			pr_debug("request_threaded_irq succeeded\n");
 			mhl_ctrl->irq_req_done = true;
+			/* wait for i2c interrupt line to be activated */
+			msleep(100);
 		}
 	} else if (!on && mhl_ctrl->irq_req_done) {
 		free_irq(mhl_ctrl->i2c_handle->irq, mhl_ctrl);
@@ -426,8 +432,27 @@ static int mhl_sii_device_discovery(void *data, int id,
 		mhl_ctrl->irq_req_done = false;
 	}
 
-	/* wait for i2c interrupt line to be activated */
-	msleep(100);
+vreg_config_error:
+	mutex_unlock(&mhl_ctrl->sii_config_lock);
+	return rc;
+}
+
+static void mhl_sii_disc_intr_work(struct work_struct *work)
+{
+	struct mhl_tx_ctrl *mhl_ctrl = NULL;
+
+	mhl_ctrl = container_of(work, struct mhl_tx_ctrl, mhl_intr_work);
+
+	mhl_sii_config(mhl_ctrl, false);
+}
+
+/*  USB_HANDSHAKING FUNCTIONS */
+static int mhl_sii_device_discovery(void *data, int id,
+			     void (*usb_notify_cb)(void *, int), void *ctx)
+{
+	int rc;
+	struct mhl_tx_ctrl *mhl_ctrl = data;
+	unsigned long flags;
 
 	if (id) {
 		/* When MHL cable is disconnected we get a sii8334
@@ -446,6 +471,14 @@ static int mhl_sii_device_discovery(void *data, int id,
 	if (!mhl_ctrl->notify_usb_online) {
 		mhl_ctrl->notify_usb_online = usb_notify_cb;
 		mhl_ctrl->notify_ctx = ctx;
+	}
+
+	flush_work(&mhl_ctrl->mhl_intr_work);
+
+	rc = mhl_sii_config(mhl_ctrl, true);
+	if (rc) {
+		pr_err("%s: Failed to config vreg/gpio\n", __func__);
+		return rc;
 	}
 
 	if (!mhl_ctrl->disc_enabled) {
@@ -1841,6 +1874,7 @@ static int mhl_i2c_probe(struct i2c_client *client,
 
 
 	init_completion(&mhl_ctrl->rgnd_done);
+	mutex_init(&mhl_ctrl->sii_config_lock);
 
 
 	mhl_ctrl->mhl_psy.name = "ext-vbus";
