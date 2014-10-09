@@ -314,12 +314,80 @@ static int mdss_mdp_ctl_perf_update(struct mdss_mdp_ctl *ctl)
 	u32 clk_rate, ab_quota, ib_quota;
 	u32 max_clk_rate = 0, total_ab_quota = 0, total_ib_quota = 0;
 
-	if (ctl->mixer_left) {
-		mdss_mdp_perf_mixer_update(ctl->mixer_left, &ab_quota,
-					   &ib_quota, &clk_rate);
-		total_ab_quota += ab_quota;
-		total_ib_quota += ib_quota;
-		max_clk_rate = clk_rate;
+	if (!ctl || !ctl->panel_data)
+		return 0;
+
+	pinfo = &ctl->panel_data->panel_info;
+	fps = mdss_panel_get_framerate(pinfo);
+	v_total = mdss_panel_get_vtotal(pinfo);
+	vbp = pinfo->lcdc.v_back_porch + pinfo->lcdc.v_pulse_width;
+	vbp_fac = (vbp) ? fps * v_total / vbp : 0;
+	pr_debug("vbp_fac=%d vbp=%d v_total=%d\n", vbp_fac, vbp, v_total);
+
+	return vbp_fac;
+}
+
+static u32 mdss_mdp_get_vbp_factor_max(struct mdss_mdp_ctl *ctl)
+{
+	u32 vbp_max = 0;
+	int i;
+	struct mdss_data_type *mdata;
+
+	if (!ctl || !ctl->mdata)
+		return 0;
+
+	mdata = ctl->mdata;
+	for (i = 0; i < mdata->nctl; i++) {
+		struct mdss_mdp_ctl *ctl = mdata->ctl_off + i;
+		u32 vbp_fac;
+
+		if (ctl->power_on) {
+			vbp_fac = mdss_mdp_get_vbp_factor(ctl);
+			vbp_max = max(vbp_max, vbp_fac);
+		}
+	}
+
+	return vbp_max;
+}
+
+static bool mdss_mdp_video_mode_intf_connected(struct mdss_mdp_ctl *ctl)
+{
+	int i;
+	struct mdss_data_type *mdata;
+
+	if (!ctl || !ctl->mdata)
+		return 0;
+
+	mdata = ctl->mdata;
+	for (i = 0; i < mdata->nctl; i++) {
+		struct mdss_mdp_ctl *ctl = mdata->ctl_off + i;
+
+		if (ctl->is_video_mode && ctl->power_on) {
+			pr_debug("video interface connected ctl:%d\n",
+			ctl->num);
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+static void __mdss_mdp_perf_calc_ctl_helper(struct mdss_mdp_ctl *ctl,
+		struct mdss_mdp_perf_params *perf,
+		struct mdss_mdp_pipe **left_plist, int left_cnt,
+		struct mdss_mdp_pipe **right_plist, int right_cnt)
+{
+	struct mdss_mdp_perf_params tmp;
+
+	memset(perf, 0, sizeof(*perf));
+
+	if (left_cnt && ctl->mixer_left) {
+		mdss_mdp_perf_calc_mixer(ctl->mixer_left, &tmp,
+				left_plist, left_cnt);
+		perf->bw_overlap += tmp.bw_overlap;
+		perf->prefill_bytes += tmp.prefill_bytes;
+		perf->mdp_clk_rate = tmp.mdp_clk_rate;
 	}
 
 	if (ctl->mixer_right) {
@@ -397,7 +465,7 @@ static void mdss_mdp_perf_calc_ctl(struct mdss_mdp_ctl *ctl,
 			left_plist, (left_plist ? MDSS_MDP_MAX_STAGE : 0),
 			right_plist, (right_plist ? MDSS_MDP_MAX_STAGE : 0));
 
-	if (ctl->is_video_mode) {
+	if (ctl->is_video_mode || mdss_mdp_video_mode_intf_connected(ctl)) {
 		perf->bw_ctl =
 			max(apply_fudge_factor(perf->bw_overlap,
 				&mdss_res->ib_factor_overlap),
