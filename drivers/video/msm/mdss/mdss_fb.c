@@ -2879,6 +2879,28 @@ static int mdss_fb_display_commit(struct fb_info *info,
 	return ret;
 }
 
+static int __ioctl_wait_idle(struct msm_fb_data_type *mfd, u32 cmd)
+{
+	int ret = 0;
+
+	if (mfd->wait_for_kickoff &&
+		((cmd == MSMFB_OVERLAY_PREPARE) ||
+		(cmd == MSMFB_BUFFER_SYNC) ||
+		(cmd == MSMFB_OVERLAY_SET))) {
+		ret = mdss_fb_wait_for_kickoff(mfd);
+	} else if ((cmd != MSMFB_VSYNC_CTRL) &&
+		(cmd != MSMFB_OVERLAY_VSYNC_CTRL) &&
+		(cmd != MSMFB_ASYNC_BLIT) &&
+		(cmd != MSMFB_BLIT) &&
+		(cmd != MSMFB_NOTIFY_UPDATE) &&
+		(cmd != MSMFB_OVERLAY_PREPARE)) {
+		ret = mdss_fb_pan_idle(mfd);
+	}
+
+	if (ret)
+		pr_debug("Shutdown pending. Aborting operation %x\n", cmd);
+	return ret;
+}
 
 /* use dynamic log */
 static int mdss_fb_ioctl(struct fb_info *info, unsigned int cmd,
